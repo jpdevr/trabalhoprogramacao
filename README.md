@@ -7,6 +7,7 @@ Implementação completa em Python de uma API REST para sistema de vendas/pagame
 - Flask
 - SQLite (nativo)
 - Mensageria assíncrona interna com `queue.Queue` + `threading`
+- React + Vite para a interface web
 
 ## Como rodar
 1. Criar ambiente virtual:
@@ -27,6 +28,40 @@ python main.py
 
 4. API disponível em:
 - `http://127.0.0.1:5000`
+
+## Interface web
+A interface React consome todos os endpoints descritos abaixo e cobre:
+- Painel com indicadores gerais
+- CRUD de clientes, produtos, condições de pagamento e preços por cliente
+- Registro e histórico de vendas
+- Consulta de notificações de queda de preço
+- Relatório de vendas/produtos por CNPJ ou Razão Social
+
+### Desenvolvimento da tela
+Em um terminal, rode a API:
+```bash
+python main.py
+```
+
+Em outro terminal, rode o frontend:
+```bash
+npm install
+npm run dev
+```
+
+Abra:
+- `http://127.0.0.1:5173`
+
+### Servir tudo pelo Flask
+Para gerar a tela estática e abrir junto com a API:
+```bash
+npm install
+npm run build
+python main.py
+```
+
+Abra:
+- `http://127.0.0.1:5000/app`
 
 ## Modelo de dados (expandido)
 Entidades base pedidas:

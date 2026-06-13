@@ -5,12 +5,17 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "payment_system.db"
+FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    static_folder=str(FRONTEND_DIST / "assets"),
+    static_url_path="/app/assets",
+)
 
 price_events: "queue.Queue[dict]" = queue.Queue()
 stop_event = threading.Event()
@@ -25,6 +30,14 @@ def db_conn():
 
 def now_iso():
     return datetime.utcnow().isoformat()
+
+
+@app.after_request
+def add_dev_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    return response
 
 
 def init_db():
@@ -110,6 +123,10 @@ def row_to_dict(row):
     return dict(row) if row else None
 
 
+def bad_request(message):
+    return jsonify({"error": message}), 400
+
+
 def start_price_worker():
     def _run():
         while not stop_event.is_set():
@@ -159,6 +176,22 @@ def start_price_worker():
 @app.get("/")
 def health():
     return {"status": "ok", "service": "payment-system-api"}
+
+
+@app.get("/app")
+@app.get("/app/<path:_path>")
+def frontend_app(_path=""):
+    index_file = FRONTEND_DIST / "index.html"
+    if not index_file.exists():
+        return (
+            jsonify(
+                {
+                    "error": "Interface React ainda nao foi gerada. Execute npm install e npm run build."
+                }
+            ),
+            404,
+        )
+    return send_from_directory(FRONTEND_DIST, "index.html")
 
 
 @app.post("/api/customers")
@@ -337,15 +370,36 @@ def delete_payment_condition(condition_id):
 def create_customer_price():
     data = request.get_json(force=True)
     with db_conn() as conn:
-        cur = conn.execute(
+        customer = conn.execute("SELECT id FROM customers WHERE id = ?", (data["customer_id"],)).fetchone()
+        if not customer:
+            return bad_request("Cliente informado nao existe.")
+
+        product = conn.execute("SELECT id FROM products WHERE id = ?", (data["product_id"],)).fetchone()
+        if not product:
+            return bad_request("Produto informado nao existe.")
+
+        existing = conn.execute(
             """
-            INSERT INTO customer_prices (customer_id, product_id, price, updated_at)
-            VALUES (?, ?, ?, ?)
+            SELECT id FROM customer_prices
+            WHERE customer_id = ? AND product_id = ?
             """,
-            (data["customer_id"], data["product_id"], str(data["price"]), now_iso()),
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM customer_prices WHERE id = ?", (cur.lastrowid,)).fetchone()
+            (data["customer_id"], data["product_id"]),
+        ).fetchone()
+        if existing:
+            return bad_request("Ja existe um preco cadastrado para este cliente e produto.")
+
+        try:
+            cur = conn.execute(
+                """
+                INSERT INTO customer_prices (customer_id, product_id, price, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (data["customer_id"], data["product_id"], str(data["price"]), now_iso()),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM customer_prices WHERE id = ?", (cur.lastrowid,)).fetchone()
+        except sqlite3.IntegrityError:
+            return bad_request("Nao foi possivel cadastrar o preco informado.")
     return row_to_dict(row), 201
 
 
